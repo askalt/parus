@@ -1,7 +1,8 @@
 use std::cell::RefCell;
 
 use parus::either::Either;
-use parus::lexer::lexer::{self, Epsilon, Grammar, Lexer, Symbol};
+use parus::grammar::grammar::{Epsilon, Grammar, Symbol};
+use parus::lexer::lexer::Lexer;
 use parus::parser::ll::LLParser;
 use parus::parser::parser::{NonEpsTreeNode, Parser, TreeNode};
 
@@ -84,7 +85,7 @@ impl Symbol for ArithmNode {
 struct ArithmGrammar {}
 
 impl ArithmGrammar {
-    const PRODUCTIONS: [&'static [Either<&'static [ArithmNode], lexer::Epsilon>]; 5] = [
+    const PRODUCTIONS: [&'static [Either<&'static [ArithmNode], Epsilon>]; 5] = [
         &[
             // E -> F E'
             Either::Left(&[ArithmNode::F, ArithmNode::EStroke]),
@@ -123,7 +124,7 @@ impl ArithmGrammar {
 }
 
 impl Grammar<ArithmNode> for ArithmGrammar {
-    fn get_productions(&self, symbol: &ArithmNode) -> &[Either<&[ArithmNode], lexer::Epsilon>] {
+    fn get_productions(&self, symbol: &ArithmNode) -> &[Either<&[ArithmNode], Epsilon>] {
         Self::PRODUCTIONS[match symbol {
             ArithmNode::E => 0,
             ArithmNode::EStroke => 1,

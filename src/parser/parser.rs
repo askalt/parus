@@ -1,4 +1,5 @@
-use crate::lexer::lexer::{Lexer, Symbol};
+use crate::grammar::grammar::Symbol;
+use crate::lexer::lexer::Lexer;
 
 /// Describes non epsilon tree node.
 #[derive(Debug, PartialEq, Eq)]

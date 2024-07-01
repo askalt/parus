@@ -2,7 +2,8 @@ use std::marker::PhantomData;
 
 use super::parser::{Parser, TreeNode};
 use crate::{
-    lexer::lexer::{Grammar, Lexer, Symbol},
+    grammar::grammar::{Grammar, Symbol},
+    lexer::lexer::Lexer,
     parser::parser::NonEpsTreeNode,
 };
 
