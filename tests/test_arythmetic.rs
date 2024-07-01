@@ -1,6 +1,7 @@
 use std::cell::RefCell;
 
-use parus::either::Either;
+use core::fmt::Debug;
+use either::Either;
 use parus::grammar::grammar::{Epsilon, Grammar, Symbol};
 use parus::lexer::lexer::Lexer;
 use parus::parser::ll::LLParser;
@@ -26,7 +27,7 @@ use parus::parser::parser::{NonEpsTreeNode, Parser, TreeNode};
 //      (E)
 
 /// Describes operation.
-#[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Debug)]
+#[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Clone)]
 enum Op {
     Add,
     Sub,
@@ -34,15 +35,35 @@ enum Op {
     Div,
 }
 
+impl Debug for Op {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Add => write!(f, "+"),
+            Self::Sub => write!(f, "-"),
+            Self::Mul => write!(f, "*"),
+            Self::Div => write!(f, "/"),
+        }
+    }
+}
+
 /// Describes brackets.
-#[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Debug)]
+#[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Clone)]
 enum Bracket {
     Open,
     Close,
 }
 
+impl Debug for Bracket {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Open => write!(f, "("),
+            Self::Close => write!(f, ")"),
+        }
+    }
+}
+
 /// Describes arithemetic grammar.
-#[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Debug)]
+#[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Clone)]
 enum ArithmNode {
     // Non-terminals.
     E,
@@ -55,6 +76,21 @@ enum ArithmNode {
     Int(i32),
     Op(Op),
     Bracket(Bracket),
+}
+
+impl Debug for ArithmNode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::E => write!(f, "E"),
+            Self::EStroke => write!(f, "E'"),
+            Self::F => write!(f, "F"),
+            Self::FStroke => write!(f, "F'"),
+            Self::L => write!(f, "L"),
+            Self::Int(int) => write!(f, "{}", int),
+            Self::Op(op) => write!(f, "{:?}", op),
+            Self::Bracket(bracket) => write!(f, "{:?}", bracket),
+        }
+    }
 }
 
 impl Symbol for ArithmNode {
@@ -267,4 +303,25 @@ fn test_parse_simple_expr() {
             ])
         ))
     );
+}
+
+#[test]
+fn example_iterate_arithmetic_grammar() {
+    let expected = vec![
+        "0", "0*0", "0/0", "0*0*0", "0*0/0", "0/0*0", "0/0/0", "0+0", "0-0", "(0)",
+    ];
+
+    let grammar = ArithmGrammar {};
+    let actual: Vec<_> = grammar
+        .into_iterator()
+        .take(expected.len())
+        .map(|str| {
+            str.iter()
+                .map(|it| format!("{:?}", it))
+                .collect::<Vec<String>>()
+                .join("")
+        })
+        .collect();
+
+    assert_eq!(actual, expected);
 }
