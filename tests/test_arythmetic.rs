@@ -2,7 +2,7 @@ use std::cell::RefCell;
 
 use core::fmt::Debug;
 use either::Either;
-use parus::grammar::grammar::{Epsilon, Grammar, Symbol};
+use parus::grammar::grammar::{Epsilon, Grammar, RandomGrammarIterator, Symbol};
 use parus::lexer::lexer::Lexer;
 use parus::parser::ll::LLParser;
 use parus::parser::parser::{NonEpsTreeNode, Parser, TreeNode};
@@ -242,6 +242,89 @@ type NonEpsNode = NonEpsTreeNode<ArithmNode>;
 use ArithmNode::*;
 mod util;
 
+/// Calculates expression by the parsing tree using stack.
+fn calculate_stack(u: &Box<TreeNode<ArithmNode>>, stack: &mut Vec<i32>) {
+    assert!(!u.is_eps());
+    let u = u.as_non_eps().unwrap();
+    let ch = u.children.as_ref().unwrap();
+    match u.vertex {
+        E => {
+            // E -> F E'
+            calculate_stack(&ch[0], stack);
+            calculate_stack(&ch[1], stack);
+        }
+        EStroke => {
+            if ch[0].is_eps() {
+                // E' -> eps
+                return;
+            }
+            // We know that rule if E' -> (+|-) F E'
+            // We need to calculate F and then do the operation.
+            calculate_stack(&ch[1], stack);
+            let op = ch[0].as_non_eps().unwrap();
+            let f = stack.pop().unwrap();
+            let s = stack.pop().unwrap();
+            let res = match op.vertex {
+                Op(Op::Add) => s + f,
+                Op(Op::Sub) => s - f,
+                _ => panic!("wrong tree"),
+            };
+            stack.push(res);
+            // Now we can calculate E'.
+            calculate_stack(&ch[2], stack);
+        }
+        F => {
+            // F -> L F'
+            calculate_stack(&ch[0], stack);
+            calculate_stack(&ch[1], stack);
+        }
+        FStroke => {
+            if ch[0].is_eps() {
+                // F' -> eps
+                return;
+            }
+            // We know that rule if F' -> (*|/) L F'
+            // We need to calculate L and then do the operation.
+            calculate_stack(&ch[1], stack);
+            let op = ch[0].as_non_eps().unwrap();
+            let f = stack.pop().unwrap();
+            let s = stack.pop().unwrap();
+            let res = match op.vertex {
+                Op(Op::Mul) => s * f,
+                Op(Op::Div) => {
+                    if f == 0 {
+                        panic!("div by 0")
+                    } else {
+                        s / f
+                    }
+                }
+                _ => panic!("wrong tree"),
+            };
+            stack.push(res);
+            // Now we can calculate F'.
+            calculate_stack(&ch[2], stack);
+        }
+        L => match ch[0].as_non_eps().unwrap().vertex {
+            Int(x) => {
+                stack.push(x);
+            }
+            Bracket(_) => {
+                calculate_stack(&ch[1], stack);
+            }
+            _ => panic!("wrong tree"),
+        },
+        _ => todo!(),
+    }
+}
+
+/// Calculates the expression value by the parsing tree.
+fn calculate(u: Box<TreeNode<ArithmNode>>) -> i32 {
+    let mut stack = Vec::new();
+    calculate_stack(&u, &mut stack);
+    assert!(stack.len() == 1);
+    stack.pop().unwrap()
+}
+
 #[test]
 fn test_parse_simple_expr() {
     let expr = b"2+3";
@@ -288,6 +371,7 @@ fn test_parse_simple_expr() {
             ])
         ))
     );
+    assert_eq!(calculate(tree.unwrap()), 5);
 }
 
 #[test]
@@ -309,4 +393,42 @@ fn example_iterate_arithmetic_grammar() {
         .collect();
 
     assert_eq!(actual, expected);
+}
+
+fn calculate_helper(expr: &[u8]) -> i32 {
+    let grammar = ArithmGrammar {};
+    let mut lexer = BytesArithmLexer::from_bytes(expr.into());
+    let parser: LLParser<ArithmNode, ArithmGrammar> = LLParser::new(grammar);
+    let tree = parser.parse(&mut lexer as &mut dyn Lexer<ArithmNode>);
+    assert!(tree.is_some());
+    calculate(tree.unwrap())
+}
+
+#[test]
+fn test_expressions() {
+    assert_eq!(calculate_helper(b"2+2"), 4);
+    assert_eq!(calculate_helper(b"(2-3)*5"), -5);
+    assert_eq!(calculate_helper(b"1-2-3"), -4);
+    assert_eq!(calculate_helper(b"150*(13+4)"), 2550);
+    assert_eq!(
+        calculate_helper(b"1*2*3+4*(45-3)+42*42*(10-(16*3))"),
+        -66858
+    );
+}
+
+#[test]
+fn example_random_expressions() {
+    let grammar = ArithmGrammar {};
+    let iterator = RandomGrammarIterator::new(grammar, 30, 60);
+    let actual: Vec<_> = iterator
+        .take(10)
+        .map(|str| {
+            str.iter()
+                .map(|it| format!("{:?}", it))
+                .collect::<Vec<String>>()
+                .join("")
+        })
+        .collect();
+    println!("{:?}", actual.iter().map(|it| it.len()).collect::<Vec<_>>());
+    println!("{}", actual.join("\n"));
 }

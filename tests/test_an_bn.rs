@@ -2,7 +2,7 @@ use std::cell::RefCell;
 
 use either::Either;
 use parus::{
-    grammar::grammar::{Epsilon, Grammar, Symbol},
+    grammar::grammar::{Epsilon, Grammar, RandomGrammarIterator, Symbol},
     lexer::lexer::Lexer,
     parser::{
         ll::LLParser,
@@ -173,4 +173,21 @@ fn simple_expr_not_ok() {
     let parser: LLParser<Node, AnBnGrammar> = LLParser::new(grammar);
     let res = parser.parse(&mut lexer);
     assert!(res.is_none());
+}
+
+#[test]
+fn example_random_expressions() {
+    let grammar = AnBnGrammar {};
+    let iterator = RandomGrammarIterator::new(grammar, 30, 35);
+    let actual: Vec<_> = iterator
+        .take(10)
+        .map(|str| {
+            str.iter()
+                .map(|it| format!("{:?}", it))
+                .collect::<Vec<String>>()
+                .join("")
+        })
+        .collect();
+    println!("{:?}", actual.iter().map(|it| it.len()).collect::<Vec<_>>());
+    println!("{}", actual.join("\n"));
 }
