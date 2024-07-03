@@ -239,23 +239,8 @@ impl Lexer<ArithmNode> for BytesArithmLexer {
 
 type NonEpsNode = NonEpsTreeNode<ArithmNode>;
 
-// Sugar to produce trees in tests.
-macro_rules! make_node {
-    ($vertex: expr, $children: expr) => {
-        Box::new(TreeNode::NonEps(NonEpsNode {
-            vertex: $vertex,
-            children: $children,
-        }))
-    };
-}
-
-macro_rules! eps_node {
-    () => {
-        Box::new(TreeNode::Eps)
-    };
-}
-
 use ArithmNode::*;
+mod util;
 
 #[test]
 fn test_parse_simple_expr() {
