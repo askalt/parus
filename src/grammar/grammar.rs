@@ -1,9 +1,9 @@
 use either::Either;
 use rand::Rng;
-use std::{collections::VecDeque, hash::Hash, marker::PhantomData};
+use std::{collections::VecDeque, fmt::Debug, hash::Hash, marker::PhantomData};
 
 /// Describes the symbols in the specific grammar.
-pub trait Symbol: Eq + Hash + Ord + Clone {
+pub trait Symbol: Eq + Hash + Ord + Clone + Debug {
     /// Returns true is symbol is a terminal.
     fn is_terminal(&self) -> bool;
 

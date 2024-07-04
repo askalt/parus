@@ -2,6 +2,8 @@
 
 LL check for grammar
 
-Fuzz tests for LL(1) parser
+<strike> Fuzz tests for LL(1) parser </strike>
 
 LR parser
+
+Compile time parser generation
