@@ -2,7 +2,7 @@ use std::cell::RefCell;
 
 use core::fmt::Debug;
 use either::Either;
-use parus::grammar::grammar::{Epsilon, Grammar, RandomGrammarIterator, Symbol};
+use parus::grammar::grammar::{Epsilon, GrammarSymbol, RandomGrammarIterator};
 use parus::lexer::lexer::Lexer;
 use parus::parser::ll::LLParser;
 use parus::parser::parser::{NonEpsTreeNode, Parser, TreeNode};
@@ -94,34 +94,7 @@ impl Debug for ArithmNode {
     }
 }
 
-impl Symbol for ArithmNode {
-    fn is_terminal(&self) -> bool {
-        matches!(self, Self::Int(_) | Self::Op(_) | Self::Bracket(_))
-    }
-
-    fn start_non_terminal() -> Self {
-        Self::E
-    }
-
-    fn is_accept(&self, oth: &Self) -> bool {
-        match self {
-            Self::Int(_) => matches!(oth, Self::Int(_)),
-            Self::Op(lhs) => match oth {
-                Self::Op(rhs) => lhs == rhs,
-                _ => false,
-            },
-            Self::Bracket(lhs) => match oth {
-                Self::Bracket(rhs) => lhs == rhs,
-                _ => false,
-            },
-            _ => false,
-        }
-    }
-}
-
-struct ArithmGrammar {}
-
-impl ArithmGrammar {
+impl ArithmNode {
     const PRODUCTIONS: [&'static [Either<&'static [ArithmNode], Epsilon>]; 5] = [
         &[
             // E -> F E'
@@ -160,8 +133,31 @@ impl ArithmGrammar {
     ];
 }
 
-impl Grammar<ArithmNode> for ArithmGrammar {
-    fn get_productions(&self, symbol: &ArithmNode) -> &[Either<&[ArithmNode], Epsilon>] {
+impl GrammarSymbol for ArithmNode {
+    fn is_terminal(&self) -> bool {
+        matches!(self, Self::Int(_) | Self::Op(_) | Self::Bracket(_))
+    }
+
+    fn start_non_terminal() -> Self {
+        Self::E
+    }
+
+    fn is_accept(&self, oth: &Self) -> bool {
+        match self {
+            Self::Int(_) => matches!(oth, Self::Int(_)),
+            Self::Op(lhs) => match oth {
+                Self::Op(rhs) => lhs == rhs,
+                _ => false,
+            },
+            Self::Bracket(lhs) => match oth {
+                Self::Bracket(rhs) => lhs == rhs,
+                _ => false,
+            },
+            _ => false,
+        }
+    }
+
+    fn get_productions<'a, 'b, 'c>(symbol: &'a Self) -> &'b [Either<&'c [Self], Epsilon>] {
         Self::PRODUCTIONS[match symbol {
             ArithmNode::E => 0,
             ArithmNode::EStroke => 1,
@@ -330,9 +326,8 @@ fn calculate(u: Box<TreeNode<ArithmNode>>) -> Option<i32> {
 #[test]
 fn test_parse_simple_expr() {
     let expr = b"2+3";
-    let grammar = ArithmGrammar {};
     let mut lexer = BytesArithmLexer::from_bytes(expr.into());
-    let parser: LLParser<ArithmNode, ArithmGrammar> = LLParser::new(grammar);
+    let parser: LLParser<ArithmNode> = LLParser::new();
     let tree = parser.parse(&mut lexer as &mut dyn Lexer<ArithmNode>);
     //     -  E -
     //    /        \
@@ -382,9 +377,7 @@ fn example_iterate_arithmetic_grammar() {
         "0", "0*0", "0/0", "0*0*0", "0*0/0", "0/0*0", "0/0/0", "0+0", "0-0", "(0)",
     ];
 
-    let grammar = ArithmGrammar {};
-    let actual: Vec<_> = grammar
-        .into_iterator()
+    let actual: Vec<_> = ArithmNode::into_iterator()
         .take(expected.len())
         .map(|str| {
             str.iter()
@@ -398,9 +391,8 @@ fn example_iterate_arithmetic_grammar() {
 }
 
 fn calculate_helper(expr: &[u8]) -> Option<i32> {
-    let grammar = ArithmGrammar {};
     let mut lexer = BytesArithmLexer::from_bytes(expr.into());
-    let parser: LLParser<ArithmNode, ArithmGrammar> = LLParser::new(grammar);
+    let parser: LLParser<ArithmNode> = LLParser::new();
     let tree = parser.parse(&mut lexer as &mut dyn Lexer<ArithmNode>)?;
     calculate(tree)
 }
@@ -420,8 +412,7 @@ fn test_expressions() {
 
 #[test]
 fn example_random_expressions() {
-    let grammar = ArithmGrammar {};
-    let iterator = RandomGrammarIterator::new(grammar, 30, 60);
+    let iterator: RandomGrammarIterator<ArithmNode> = RandomGrammarIterator::new(30, 60);
     let actual: Vec<_> = iterator
         .take(10)
         .map(|str| {
@@ -560,25 +551,7 @@ impl Debug for FullArithmNode {
     }
 }
 
-impl Symbol for FullArithmNode {
-    fn is_terminal(&self) -> bool {
-        matches!(self, Self::Digit(_) | Self::Op(_) | Self::Bracket(_))
-    }
-
-    fn start_non_terminal() -> Self {
-        Self::E
-    }
-
-    fn is_accept(&self, _: &Self) -> bool {
-        // Stub, this grammar is not used for parsing, only for
-        // generating.
-        false
-    }
-}
-
-struct RandomNumbersGrammar {}
-
-impl RandomNumbersGrammar {
+impl FullArithmNode {
     const PRODUCTIONS: [&'static [Either<&'static [FullArithmNode], Epsilon>]; 7] = [
         &[
             // E -> F E'
@@ -669,8 +642,22 @@ impl RandomNumbersGrammar {
     ];
 }
 
-impl Grammar<FullArithmNode> for RandomNumbersGrammar {
-    fn get_productions(&self, symbol: &FullArithmNode) -> &[Either<&[FullArithmNode], Epsilon>] {
+impl GrammarSymbol for FullArithmNode {
+    fn is_terminal(&self) -> bool {
+        matches!(self, Self::Digit(_) | Self::Op(_) | Self::Bracket(_))
+    }
+
+    fn start_non_terminal() -> Self {
+        Self::E
+    }
+
+    fn is_accept(&self, _: &Self) -> bool {
+        // Stub, this grammar is not used for parsing, only for
+        // generating.
+        false
+    }
+
+    fn get_productions<'a, 'b, 'c>(symbol: &'a Self) -> &'b [Either<&'c [Self], Epsilon>] {
         Self::PRODUCTIONS[match symbol {
             FullArithmNode::E => 0,
             FullArithmNode::EStroke => 1,
@@ -684,7 +671,7 @@ impl Grammar<FullArithmNode> for RandomNumbersGrammar {
     }
 }
 
-fn collect_as_strings<S: Symbol>(
+fn collect_as_strings<S: GrammarSymbol>(
     iterator: impl Iterator<Item = Vec<S>>,
     number: usize,
 ) -> Vec<String> {
@@ -701,9 +688,7 @@ fn collect_as_strings<S: Symbol>(
 
 #[test]
 fn fuzz_ll_parser_vs_stupid() {
-    let grammar = RandomNumbersGrammar {};
-
-    let iterator = RandomGrammarIterator::new(grammar, 15, 30);
+    let iterator: RandomGrammarIterator<FullArithmNode> = RandomGrammarIterator::new(15, 30);
     let actual = collect_as_strings(iterator, 100000);
 
     for str in actual {
@@ -721,9 +706,8 @@ fn benchmark_parsing_positive(
     max_length: usize,
     count: usize,
 ) {
-    let grammar = RandomNumbersGrammar {};
-
-    let iterator = RandomGrammarIterator::new(grammar, min_length, max_length);
+    let iterator: RandomGrammarIterator<FullArithmNode> =
+        RandomGrammarIterator::new(min_length, max_length);
     let actual = collect_as_strings(iterator, count);
 
     let before = Instant::now();

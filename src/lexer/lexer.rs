@@ -1,9 +1,9 @@
-use crate::grammar::grammar::Symbol;
+use crate::grammar::grammar::GrammarSymbol;
 
 /// Describes a lexer over some grammar.
 pub trait Lexer<S>
 where
-    S: Symbol,
+    S: GrammarSymbol,
 {
     /// Returns next symbol, if one exists.
     /// Else returns `None`.

@@ -1,9 +1,9 @@
-use crate::grammar::grammar::Symbol;
+use crate::grammar::grammar::GrammarSymbol;
 use crate::lexer::lexer::Lexer;
 
 /// Describes non epsilon tree node.
 #[derive(Debug, PartialEq, Eq)]
-pub struct NonEpsTreeNode<S: Symbol> {
+pub struct NonEpsTreeNode<S: GrammarSymbol> {
     // Current node symbol.
     pub vertex: S,
     // Children nodes.
@@ -15,12 +15,12 @@ pub struct NonEpsTreeNode<S: Symbol> {
 
 /// Describes parsing tree.
 #[derive(Debug, PartialEq, Eq)]
-pub enum TreeNode<S: Symbol> {
+pub enum TreeNode<S: GrammarSymbol> {
     NonEps(NonEpsTreeNode<S>),
     Eps,
 }
 
-impl<S: Symbol> TreeNode<S> {
+impl<S: GrammarSymbol> TreeNode<S> {
     pub fn is_eps(&self) -> bool {
         matches!(self, Self::Eps)
     }
@@ -38,7 +38,7 @@ impl<S: Symbol> TreeNode<S> {
 }
 
 /// Describes parser for the specific grammar.
-pub trait Parser<S: Symbol> {
+pub trait Parser<S: GrammarSymbol> {
     /// Parse grammar using the lexer.
     fn parse(&self, lexer: &mut dyn Lexer<S>) -> Option<Box<TreeNode<S>>>;
 }

@@ -1,25 +1,19 @@
 use std::marker::PhantomData;
 
 use super::parser::{Parser, TreeNode};
-use crate::{
-    grammar::grammar::{Grammar, Symbol},
-    lexer::lexer::Lexer,
-    parser::parser::NonEpsTreeNode,
-};
+use crate::{grammar::grammar::GrammarSymbol, lexer::lexer::Lexer, parser::parser::NonEpsTreeNode};
 
 /// Describes LL(1) parser for the specific grammar.
-pub struct LLParser<S: Symbol, G: Grammar<S>> {
-    grammar: G,
+pub struct LLParser<S: GrammarSymbol> {
     phantom: PhantomData<S>,
 }
 
-impl<S: Symbol, G: Grammar<S>> LLParser<S, G> {
+impl<S: GrammarSymbol> LLParser<S> {
     /// Create new LLParser.
-    pub fn new(grammar: G) -> Self {
+    pub fn new() -> Self {
         // TODO: grammar validation.
         // Grammar should satisfy LL(1) laws.
         Self {
-            grammar: grammar,
             phantom: PhantomData,
         }
     }
@@ -27,8 +21,7 @@ impl<S: Symbol, G: Grammar<S>> LLParser<S, G> {
     /// Parse some non-terminal.
     fn parse_nt(&self, nt: S, lexer: &mut dyn Lexer<S>) -> Option<Box<TreeNode<S>>> {
         let cur = lexer.cur();
-        // TODO: cache productions.
-        let productions = self.grammar.get_productions(&nt);
+        let productions = S::get_productions(&nt);
 
         if cur.is_none() {
             // Check for the epsilon production.
@@ -113,7 +106,7 @@ impl<S: Symbol, G: Grammar<S>> LLParser<S, G> {
     }
 }
 
-impl<S: Symbol, G: Grammar<S>> Parser<S> for LLParser<S, G> {
+impl<S: GrammarSymbol> Parser<S> for LLParser<S> {
     fn parse(&self, lexer: &mut dyn Lexer<S>) -> Option<Box<TreeNode<S>>> {
         self.parse_nt(S::start_non_terminal(), lexer)
     }

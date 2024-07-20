@@ -2,7 +2,7 @@ use std::cell::RefCell;
 
 use either::Either;
 use parus::{
-    grammar::grammar::{Epsilon, Grammar, RandomGrammarIterator, Symbol},
+    grammar::grammar::{Epsilon, GrammarSymbol, RandomGrammarIterator},
     lexer::lexer::Lexer,
     parser::{
         ll::LLParser,
@@ -21,7 +21,16 @@ enum Node {
     B,
 }
 
-impl Symbol for Node {
+impl Node {
+    const PRODUCTIONS: [&'static [Either<&'static [Node], Epsilon>]; 1] = [&[
+        // S -> A S B
+        Either::Left(&[Node::A, Node::S, Node::B]),
+        // S -> eps
+        Either::Right(Epsilon {}),
+    ]];
+}
+
+impl GrammarSymbol for Node {
     fn is_terminal(&self) -> bool {
         matches!(self, Self::A | Self::B)
     }
@@ -36,21 +45,8 @@ impl Symbol for Node {
             _ => false,
         }
     }
-}
 
-struct AnBnGrammar {}
-
-impl AnBnGrammar {
-    const PRODUCTIONS: [&'static [Either<&'static [Node], Epsilon>]; 1] = [&[
-        // S -> A S B
-        Either::Left(&[Node::A, Node::S, Node::B]),
-        // S -> eps
-        Either::Right(Epsilon {}),
-    ]];
-}
-
-impl Grammar<Node> for AnBnGrammar {
-    fn get_productions(&self, symbol: &Node) -> &[Either<&[Node], Epsilon>] {
+    fn get_productions<'a, 'b, 'c>(symbol: &'a Self) -> &'b [Either<&'c [Self], Epsilon>] {
         match symbol {
             Node::S => Self::PRODUCTIONS[0],
             _ => panic!("only non-terminals have productions"),
@@ -60,7 +56,6 @@ impl Grammar<Node> for AnBnGrammar {
 
 #[test]
 fn iterate_over_grammar() {
-    let grammar = AnBnGrammar {};
     let expected = vec![
         "",
         "AB",
@@ -74,8 +69,7 @@ fn iterate_over_grammar() {
         "AAAAAAAAABBBBBBBBB",
     ];
 
-    let actual: Vec<_> = grammar
-        .into_iterator()
+    let actual: Vec<_> = Node::into_iterator()
         .take(expected.len())
         .map(|str| {
             str.iter()
@@ -133,9 +127,8 @@ type NonEpsNode = NonEpsTreeNode<Node>;
 #[test]
 fn simple_expr_ok() {
     let expr = b"AAABBB";
-    let grammar = AnBnGrammar {};
     let mut lexer = AnBnLexer::from_bytes(expr.into());
-    let parser: LLParser<Node, AnBnGrammar> = LLParser::new(grammar);
+    let parser: LLParser<Node> = LLParser::new();
 
     let tree = parser.parse(&mut lexer);
     assert_eq!(
@@ -168,17 +161,15 @@ fn simple_expr_ok() {
 #[test]
 fn simple_expr_not_ok() {
     let expr = b"AAB";
-    let grammar = AnBnGrammar {};
     let mut lexer = AnBnLexer::from_bytes(expr.into());
-    let parser: LLParser<Node, AnBnGrammar> = LLParser::new(grammar);
+    let parser: LLParser<Node> = LLParser::new();
     let res = parser.parse(&mut lexer);
     assert!(res.is_none());
 }
 
 #[test]
 fn example_random_expressions() {
-    let grammar = AnBnGrammar {};
-    let iterator = RandomGrammarIterator::new(grammar, 30, 35);
+    let iterator: RandomGrammarIterator<Node> = RandomGrammarIterator::new(30, 35);
     let actual: Vec<_> = iterator
         .take(10)
         .map(|str| {

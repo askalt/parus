@@ -3,7 +3,7 @@ use rand::Rng;
 use std::{collections::VecDeque, fmt::Debug, hash::Hash, marker::PhantomData};
 
 /// Describes the symbols in the specific grammar.
-pub trait Symbol: Eq + Hash + Ord + Clone + Debug {
+pub trait GrammarSymbol: Eq + Hash + Ord + Clone + Debug {
     /// Returns true is symbol is a terminal.
     fn is_terminal(&self) -> bool;
 
@@ -26,49 +26,41 @@ pub trait Symbol: Eq + Hash + Ord + Clone + Debug {
     /// Or, lexer can return some other symbol, e.g., `Float`, and in this situation,
     /// is_accept(...) must return false.
     fn is_accept(&self, oth: &Self) -> bool;
+
+    /// Get productions for the specific symbol.
+    /// Will be called for only non-terminal symbols.
+    fn get_productions<'a, 'b, 'c>(symbol: &'a Self) -> &'b [Either<&'c [Self], Epsilon>];
+
+    /// Makes an iterator from the grammar.
+    fn into_iterator() -> GrammarIterator<Self>
+    where
+        Self: Sized,
+    {
+        return GrammarIterator::new();
+    }
 }
 
 /// Equivalent of an empty string.
 #[derive(Clone)]
 pub struct Epsilon {}
 
-/// Describes a context-free grammar.
-pub trait Grammar<S>
-where
-    S: Symbol,
-{
-    /// Get productions for the specific symbol.
-    /// Will be called for only non-terminal symbols.
-    fn get_productions(&self, symbol: &S) -> &[Either<&[S], Epsilon>];
-
-    /// Makes an iterator from the grammar.
-    fn into_iterator(self) -> GrammarIterator<S, Self>
-    where
-        Self: Sized,
-    {
-        return GrammarIterator::new(self);
-    }
-}
-
 /// Visits the specified grammar, using BFS.
 /// If the grammar produces the same string several times, returns it several times.
-pub struct GrammarIterator<S: Symbol, G: Grammar<S>> {
-    grammar: G,
+pub struct GrammarIterator<S: GrammarSymbol> {
     queue: VecDeque<Vec<S>>,
 }
 
-impl<S: Symbol, G: Grammar<S>> GrammarIterator<S, G> {
+impl<S: GrammarSymbol> GrammarIterator<S> {
     /// Creates new `GrammarIterator` over some grammar.
-    fn new(grammar: G) -> Self {
+    fn new() -> Self {
         Self {
-            grammar: grammar,
             queue: VecDeque::from([vec![S::start_non_terminal()]]),
         }
     }
 }
 
 /// Applies production to the string and returns the count of terminals.
-fn apply_production<S: Symbol>(
+fn apply_production<S: GrammarSymbol>(
     str: &mut Vec<S>,
     i: usize,
     production: &Either<&[S], Epsilon>,
@@ -97,7 +89,7 @@ fn apply_production<S: Symbol>(
     }
 }
 
-impl<S: Symbol, G: Grammar<S>> Iterator for GrammarIterator<S, G> {
+impl<S: GrammarSymbol> Iterator for GrammarIterator<S> {
     type Item = Vec<S>;
 
     /// Return next derivate string.
@@ -110,7 +102,7 @@ impl<S: Symbol, G: Grammar<S>> Iterator for GrammarIterator<S, G> {
                 return Some(str);
             }
             let (i, s) = non_terminal.unwrap();
-            for production in self.grammar.get_productions(s) {
+            for production in S::get_productions(s) {
                 let mut nxt = str.clone();
                 apply_production(&mut nxt, i, production);
                 self.queue.push_back(nxt);
@@ -120,8 +112,7 @@ impl<S: Symbol, G: Grammar<S>> Iterator for GrammarIterator<S, G> {
     }
 }
 
-pub struct RandomGrammarIterator<S: Symbol, G: Grammar<S>> {
-    grammar: G,
+pub struct RandomGrammarIterator<S: GrammarSymbol> {
     /// Tries not choose productions with only terminals while length < min_length.
     min_lentgth: usize,
     /// If exceeds max_length, tries to choose production without non-terminals.
@@ -130,10 +121,9 @@ pub struct RandomGrammarIterator<S: Symbol, G: Grammar<S>> {
     rng: rand::rngs::ThreadRng,
 }
 
-impl<S: Symbol, G: Grammar<S>> RandomGrammarIterator<S, G> {
-    pub fn new(grammar: G, min_length: usize, max_length: usize) -> Self {
+impl<S: GrammarSymbol> RandomGrammarIterator<S> {
+    pub fn new(min_length: usize, max_length: usize) -> Self {
         Self {
-            grammar: grammar,
             min_lentgth: min_length,
             max_length: max_length,
             phantom: PhantomData,
@@ -158,7 +148,7 @@ fn take_random_index(
 }
 
 /// Returns random strings over grammar. Never return None.
-impl<S: Symbol, G: Grammar<S>> Iterator for RandomGrammarIterator<S, G> {
+impl<S: GrammarSymbol> Iterator for RandomGrammarIterator<S> {
     type Item = Vec<S>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -175,7 +165,7 @@ impl<S: Symbol, G: Grammar<S>> Iterator for RandomGrammarIterator<S, G> {
                 return Some(cur);
             }
             let id = non_terminal_idx[self.rng.gen::<usize>() % non_terminal_idx.len()];
-            let productions = self.grammar.get_productions(&cur[id]);
+            let productions = S::get_productions(&cur[id]);
             assert!(!productions.is_empty());
 
             let prod_id = if length >= self.min_lentgth && length < self.max_length {
