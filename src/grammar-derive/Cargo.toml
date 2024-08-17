@@ -1,6 +1,5 @@
-workspace = { members = ["src/grammar-derive"] }
 [package]
-name = "parus"
+name = "grammar-derive"
 version = "0.1.0"
 edition = "2021"
 
@@ -8,6 +7,9 @@ edition = "2021"
 
 [dependencies]
 either = "1.13.0"
-rand = "0.8.5"
-grammar-derive = {path = "src/grammar-derive"}
-regex = "1.10.6"
+proc-macro2 = "1.0.86"
+quote = "1.0.36"
+syn = "2.0.71"
+
+[lib]
+proc-macro = true

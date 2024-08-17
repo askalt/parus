@@ -1,82 +1,76 @@
 use std::cell::RefCell;
 
 use core::fmt::Debug;
-use either::Either;
-use parus::grammar::grammar::{Epsilon, GrammarSymbol, RandomGrammarIterator};
+use grammar_derive::GrammarSymbol;
+use parus::grammar::grammar::{GrammarSymbol, IterableGrammarSymbol, RandomGrammarIterator};
 use parus::lexer::lexer::Lexer;
 use parus::parser::ll::LLParser;
 use parus::parser::parser::{NonEpsTreeNode, Parser, TreeNode};
+use rand::Rng;
+use regex::Regex;
 use std::time::Instant;
 
-// Simple LL(1) grammar for arythmetic expressions.
-
-// NT = {E, E', F, F', L}
-// T = {+ - * / ( )}
-
-// Productions:
-// E -> F E'
-// E'-> + F E'
-//      - F E'
-//      eps
-
-// F -> L F'
-// F'-> * L F'
-//      / L F'
-//      eps
-
-// L -> int
-//      (E)
-
-/// Describes operation.
-#[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Clone)]
-enum Op {
-    Add,
-    Sub,
-    Mul,
-    Div,
+fn usize_gen() -> usize {
+    let mut rnd = rand::thread_rng();
+    rnd.r#gen::<usize>() % (50000000 as usize)
 }
 
-impl Debug for Op {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Add => write!(f, "+"),
-            Self::Sub => write!(f, "-"),
-            Self::Mul => write!(f, "*"),
-            Self::Div => write!(f, "/"),
-        }
-    }
-}
-
-/// Describes brackets.
-#[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Clone)]
-enum Bracket {
-    Open,
-    Close,
-}
-
-impl Debug for Bracket {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Open => write!(f, "("),
-            Self::Close => write!(f, ")"),
-        }
-    }
-}
-
-/// Describes arithemetic grammar.
-#[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Clone)]
+/// Simple LL(1) grammar for arythmetic expressions.
+///
+/// NT = {E, E', F, F', L}
+/// T  = {+ - * / ( )}
+/// Productions:
+/// E -> F E'
+/// E'-> + F E' | - F E' | eps
+/// F -> L F'
+/// F'-> * L F' | / L F' | eps
+/// L -> int | (E)
+#[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Clone, GrammarSymbol)]
 enum ArithmNode {
     // Non-terminals.
+    #[to(
+        F EStroke           // E -> F E'
+    )]
     E,
+
+    #[to(
+        Plus F EStroke,     // E'-> + F E'
+        Minus F EStroke,    // E'-> - F E'
+        Epsilon,            // E'-> eps
+    )]
     EStroke,
+
+    #[to(
+        L FStroke           // F -> L F'
+    )]
     F,
+
+    #[to(
+        Mul L FStroke,      // F'-> * L F'
+        Div L FStroke,      // F'-> / L F'
+        Epsilon,            // F'->  eps
+    )]
     FStroke,
+
+    #[to(
+        Int,                // L -> int
+        OpenBrk E CloseBrk, // L -> (E)
+    )]
     L,
 
-    // Terminals.
-    Int(i32),
-    Op(Op),
-    Bracket(Bracket),
+    // Ops.
+    Plus,
+    Minus,
+    Mul,
+    Div,
+
+    // Brackets.
+    OpenBrk,
+    CloseBrk,
+
+    // Int
+    #[param_gen(usize_gen)]
+    Int(usize),
 }
 
 impl Debug for ArithmNode {
@@ -88,84 +82,13 @@ impl Debug for ArithmNode {
             Self::FStroke => write!(f, "F'"),
             Self::L => write!(f, "L"),
             Self::Int(int) => write!(f, "{}", int),
-            Self::Op(op) => write!(f, "{:?}", op),
-            Self::Bracket(bracket) => write!(f, "{:?}", bracket),
+            Self::Plus => write!(f, "+"),
+            Self::Minus => write!(f, "-"),
+            Self::Mul => write!(f, "*"),
+            Self::Div => write!(f, "/"),
+            Self::OpenBrk => write!(f, "("),
+            Self::CloseBrk => write!(f, ")"),
         }
-    }
-}
-
-impl ArithmNode {
-    const PRODUCTIONS: [&'static [Either<&'static [ArithmNode], Epsilon>]; 5] = [
-        &[
-            // E -> F E'
-            Either::Left(&[ArithmNode::F, ArithmNode::EStroke]),
-        ],
-        &[
-            // E'-> + F E'
-            Either::Left(&[ArithmNode::Op(Op::Add), ArithmNode::F, ArithmNode::EStroke]),
-            // E'-> - F E'
-            Either::Left(&[ArithmNode::Op(Op::Sub), ArithmNode::F, ArithmNode::EStroke]),
-            // E'-> eps
-            Either::Right(Epsilon {}),
-        ],
-        &[
-            // F -> L F'
-            Either::Left(&[ArithmNode::L, ArithmNode::FStroke]),
-        ],
-        &[
-            // F'-> * L F'
-            Either::Left(&[ArithmNode::Op(Op::Mul), ArithmNode::L, ArithmNode::FStroke]),
-            // F'-> / L F'
-            Either::Left(&[ArithmNode::Op(Op::Div), ArithmNode::L, ArithmNode::FStroke]),
-            // F'->  eps
-            Either::Right(Epsilon {}),
-        ],
-        &[
-            // L -> int
-            Either::Left(&[ArithmNode::Int(0)]),
-            // L -> (E)
-            Either::Left(&[
-                ArithmNode::Bracket(Bracket::Open),
-                ArithmNode::E,
-                ArithmNode::Bracket(Bracket::Close),
-            ]),
-        ],
-    ];
-}
-
-impl GrammarSymbol for ArithmNode {
-    fn is_terminal(&self) -> bool {
-        matches!(self, Self::Int(_) | Self::Op(_) | Self::Bracket(_))
-    }
-
-    fn start_non_terminal() -> Self {
-        Self::E
-    }
-
-    fn is_accept(&self, oth: &Self) -> bool {
-        match self {
-            Self::Int(_) => matches!(oth, Self::Int(_)),
-            Self::Op(lhs) => match oth {
-                Self::Op(rhs) => lhs == rhs,
-                _ => false,
-            },
-            Self::Bracket(lhs) => match oth {
-                Self::Bracket(rhs) => lhs == rhs,
-                _ => false,
-            },
-            _ => false,
-        }
-    }
-
-    fn get_productions<'a, 'b, 'c>(symbol: &'a Self) -> &'b [Either<&'c [Self], Epsilon>] {
-        Self::PRODUCTIONS[match symbol {
-            ArithmNode::E => 0,
-            ArithmNode::EStroke => 1,
-            ArithmNode::F => 2,
-            ArithmNode::FStroke => 3,
-            ArithmNode::L => 4,
-            _ => panic!("only non-terminals have productions"),
-        }]
     }
 }
 
@@ -202,19 +125,19 @@ impl Lexer<ArithmNode> for BytesArithmLexer {
             }
             let int = std::str::from_utf8(&self.bytes[self.pos..next_pos])
                 .ok()?
-                .parse::<i32>()
+                .parse::<usize>()
                 .ok()?;
 
             self.cur.replace(Some(ArithmNode::Int(int)));
         } else {
             next_pos = self.pos + 1;
             self.cur.replace(Some(match self.bytes[self.pos] {
-                b'+' => ArithmNode::Op(Op::Add),
-                b'-' => ArithmNode::Op(Op::Sub),
-                b'*' => ArithmNode::Op(Op::Mul),
-                b'/' => ArithmNode::Op(Op::Div),
-                b'(' => ArithmNode::Bracket(Bracket::Open),
-                b')' => ArithmNode::Bracket(Bracket::Close),
+                b'+' => ArithmNode::Plus,
+                b'-' => ArithmNode::Minus,
+                b'*' => ArithmNode::Mul,
+                b'/' => ArithmNode::Div,
+                b'(' => ArithmNode::OpenBrk,
+                b')' => ArithmNode::CloseBrk,
                 _ => panic!("unexpected symbol: {:?}", self.bytes[self.pos]),
             }));
         }
@@ -262,8 +185,8 @@ fn calculate_stack(u: &Box<TreeNode<ArithmNode>>, stack: &mut Vec<i32>) -> Optio
             let f = stack.pop()?;
             let s = stack.pop()?;
             let res = match op.vertex {
-                Op(Op::Add) => s.checked_add(f),
-                Op(Op::Sub) => s.checked_sub(f),
+                Plus => s.checked_add(f),
+                Minus => s.checked_sub(f),
                 _ => panic!("wrong tree"),
             }?;
             stack.push(res);
@@ -287,8 +210,8 @@ fn calculate_stack(u: &Box<TreeNode<ArithmNode>>, stack: &mut Vec<i32>) -> Optio
             let f = stack.pop()?;
             let s = stack.pop()?;
             let res = match op.vertex {
-                Op(Op::Mul) => s.checked_mul(f),
-                Op(Op::Div) => s.checked_div(f),
+                Mul => s.checked_mul(f),
+                Div => s.checked_div(f),
                 _ => None,
             }?;
             stack.push(res);
@@ -297,9 +220,12 @@ fn calculate_stack(u: &Box<TreeNode<ArithmNode>>, stack: &mut Vec<i32>) -> Optio
         }
         L => match ch[0].as_non_eps().unwrap().vertex {
             Int(x) => {
-                stack.push(x);
+                if x > i32::MAX as usize {
+                    return None;
+                }
+                stack.push(x as i32);
             }
-            Bracket(_) => {
+            OpenBrk => {
                 calculate_stack(&ch[1], stack)?;
             }
             _ => {
@@ -354,7 +280,7 @@ fn test_parse_simple_expr() {
                 make_node!(
                     EStroke,
                     Some(vec![
-                        make_node!(Op(Op::Add), None),
+                        make_node!(Plus, None),
                         make_node!(
                             F,
                             Some(vec![
@@ -374,7 +300,16 @@ fn test_parse_simple_expr() {
 #[test]
 fn example_iterate_arithmetic_grammar() {
     let expected = vec![
-        "0", "0*0", "0/0", "0*0*0", "0*0/0", "0/0*0", "0/0/0", "0+0", "0-0", "(0)",
+        r"\d+",         // 0
+        r"\d+*\d",      // 0 * 0
+        r"\d+/\d+",     // 0 / 0
+        r"\d+*\d+*\d+", // 0 * 0 * 0
+        r"\d+*\d+/\d+", // 0 * 0 / 0
+        r"\d+/\d+*\d+", // 0 / 0 * 0
+        r"\d+/\d+/\d+", // 0 / 0 / 0
+        r"\d++\d+",     // 0 + 0
+        r"\d+-\d+",     // 0 - 0
+        r"(\d+)",       // (0)
     ];
 
     let actual: Vec<_> = ArithmNode::into_iterator()
@@ -387,7 +322,13 @@ fn example_iterate_arithmetic_grammar() {
         })
         .collect();
 
-    assert_eq!(actual, expected);
+    assert_eq!(actual.len(), expected.len());
+    for (i, exp) in expected.iter().enumerate() {
+        let re = Regex::new(exp).unwrap();
+        println!("{}", exp);
+        println!("{}", actual[i]);
+        assert!(re.captures(&actual[i]).is_some());
+    }
 }
 
 fn calculate_helper(expr: &[u8]) -> Option<i32> {
@@ -428,8 +369,8 @@ fn example_random_expressions() {
 
 /// Calculates an expression in the stupid way.
 /// O(n^2).
-/// This methods does not build the parsing tree explicitly and for now, ofcourse, wins from
-/// parsing with crate LLParser.
+/// This methods does not build the parsing tree explicitly and for now, ofcourse, wins against
+/// parsing with LLParser.
 fn stupid_calculate(expr: &[u8]) -> Option<i32> {
     let l = expr.len();
     if l == 0 {
@@ -514,163 +455,6 @@ fn test_stupid_calculate() {
     assert_eq!(stupid_calculate(b"4/77811*(0)"), Some(0));
 }
 
-/// Helps to generate expressions with random ints in leafs.
-///
-/// Describes arithemetic grammar.
-#[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Clone)]
-enum FullArithmNode {
-    // Non-terminals.
-    E,
-    EStroke,
-    F,
-    FStroke,
-    L,
-    Int,
-    IntRest,
-
-    // Terminals.
-    Digit(i32),
-    Op(Op),
-    Bracket(Bracket),
-}
-
-impl Debug for FullArithmNode {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::E => write!(f, "E"),
-            Self::EStroke => write!(f, "E'"),
-            Self::F => write!(f, "F"),
-            Self::FStroke => write!(f, "F'"),
-            Self::L => write!(f, "L"),
-            Self::Int => write!(f, "Int"),
-            Self::Digit(d) => write!(f, "{}", d),
-            Self::IntRest => write!(f, "IntRest"),
-            Self::Op(op) => write!(f, "{:?}", op),
-            Self::Bracket(bracket) => write!(f, "{:?}", bracket),
-        }
-    }
-}
-
-impl FullArithmNode {
-    const PRODUCTIONS: [&'static [Either<&'static [FullArithmNode], Epsilon>]; 7] = [
-        &[
-            // E -> F E'
-            Either::Left(&[FullArithmNode::F, FullArithmNode::EStroke]),
-        ],
-        &[
-            // E'-> + F E'
-            Either::Left(&[
-                FullArithmNode::Op(Op::Add),
-                FullArithmNode::F,
-                FullArithmNode::EStroke,
-            ]),
-            // E'-> - F E'
-            Either::Left(&[
-                FullArithmNode::Op(Op::Sub),
-                FullArithmNode::F,
-                FullArithmNode::EStroke,
-            ]),
-            // E'-> eps
-            Either::Right(Epsilon {}),
-        ],
-        &[
-            // F -> L F'
-            Either::Left(&[FullArithmNode::L, FullArithmNode::FStroke]),
-        ],
-        &[
-            // F'-> * L F'
-            Either::Left(&[
-                FullArithmNode::Op(Op::Mul),
-                FullArithmNode::L,
-                FullArithmNode::FStroke,
-            ]),
-            // F'-> / L F'
-            Either::Left(&[
-                FullArithmNode::Op(Op::Div),
-                FullArithmNode::L,
-                FullArithmNode::FStroke,
-            ]),
-            // F'->  eps
-            Either::Right(Epsilon {}),
-        ],
-        &[
-            // Increase probability of this.
-            // L -> int
-            Either::Left(&[FullArithmNode::Int]),
-            // L -> int
-            Either::Left(&[FullArithmNode::Int]),
-            // L -> int
-            Either::Left(&[FullArithmNode::Int]),
-            // L -> (E)
-            Either::Left(&[
-                FullArithmNode::Bracket(Bracket::Open),
-                FullArithmNode::E,
-                FullArithmNode::Bracket(Bracket::Close),
-            ]),
-        ],
-        &[
-            // Int -> 0
-            // Forbid for now.
-            // Either::Left(&[FullArithmNode::Digit(0)]),
-
-            // Int -> [!0] RestInt
-            Either::Left(&[FullArithmNode::Digit(1), FullArithmNode::IntRest]),
-            Either::Left(&[FullArithmNode::Digit(2), FullArithmNode::IntRest]),
-            Either::Left(&[FullArithmNode::Digit(3), FullArithmNode::IntRest]),
-            Either::Left(&[FullArithmNode::Digit(4), FullArithmNode::IntRest]),
-            Either::Left(&[FullArithmNode::Digit(5), FullArithmNode::IntRest]),
-            Either::Left(&[FullArithmNode::Digit(6), FullArithmNode::IntRest]),
-            Either::Left(&[FullArithmNode::Digit(7), FullArithmNode::IntRest]),
-            Either::Left(&[FullArithmNode::Digit(8), FullArithmNode::IntRest]),
-            Either::Left(&[FullArithmNode::Digit(9), FullArithmNode::IntRest]),
-        ],
-        &[
-            // ResInt -> eps
-            Either::Right(Epsilon {}),
-            // ResInt -> [digit] RestInt,
-            Either::Left(&[FullArithmNode::Digit(0), FullArithmNode::IntRest]),
-            Either::Left(&[FullArithmNode::Digit(1), FullArithmNode::IntRest]),
-            Either::Left(&[FullArithmNode::Digit(2), FullArithmNode::IntRest]),
-            Either::Left(&[FullArithmNode::Digit(3), FullArithmNode::IntRest]),
-            Either::Left(&[FullArithmNode::Digit(4), FullArithmNode::IntRest]),
-            Either::Left(&[FullArithmNode::Digit(5), FullArithmNode::IntRest]),
-            Either::Left(&[FullArithmNode::Digit(6), FullArithmNode::IntRest]),
-            Either::Left(&[FullArithmNode::Digit(7), FullArithmNode::IntRest]),
-            Either::Left(&[FullArithmNode::Digit(8), FullArithmNode::IntRest]),
-            Either::Left(&[FullArithmNode::Digit(9), FullArithmNode::IntRest]),
-        ],
-    ];
-}
-
-impl GrammarSymbol for FullArithmNode {
-    fn is_terminal(&self) -> bool {
-        matches!(self, Self::Digit(_) | Self::Op(_) | Self::Bracket(_))
-    }
-
-    fn start_non_terminal() -> Self {
-        Self::E
-    }
-
-    fn is_accept(&self, _: &Self) -> bool {
-        // Stub, this grammar is not used for parsing, only for
-        // generating.
-        false
-    }
-
-    fn get_productions<'a, 'b, 'c>(symbol: &'a Self) -> &'b [Either<&'c [Self], Epsilon>] {
-        Self::PRODUCTIONS[match symbol {
-            FullArithmNode::E => 0,
-            FullArithmNode::EStroke => 1,
-            FullArithmNode::F => 2,
-            FullArithmNode::FStroke => 3,
-            FullArithmNode::L => 4,
-            FullArithmNode::Int => 5,
-            FullArithmNode::IntRest => 6,
-            _ => panic!("only non-terminals have productions"),
-        }]
-    }
-}
-
 fn collect_as_strings<S: GrammarSymbol>(
     iterator: impl Iterator<Item = Vec<S>>,
     number: usize,
@@ -688,7 +472,7 @@ fn collect_as_strings<S: GrammarSymbol>(
 
 #[test]
 fn fuzz_ll_parser_vs_stupid() {
-    let iterator: RandomGrammarIterator<FullArithmNode> = RandomGrammarIterator::new(15, 30);
+    let iterator: RandomGrammarIterator<ArithmNode> = RandomGrammarIterator::new(15, 30);
     let actual = collect_as_strings(iterator, 100000);
 
     for str in actual {
@@ -706,7 +490,7 @@ fn benchmark_parsing_positive(
     max_length: usize,
     count: usize,
 ) {
-    let iterator: RandomGrammarIterator<FullArithmNode> =
+    let iterator: RandomGrammarIterator<ArithmNode> =
         RandomGrammarIterator::new(min_length, max_length);
     let actual = collect_as_strings(iterator, count);
 
@@ -719,16 +503,16 @@ fn benchmark_parsing_positive(
         }
     }
     let after = Instant::now();
-    println!("time: {:?}", (after - before).as_millis());
+    println!("time: {:?}", (after - before).as_micros());
     assert_eq!(has_some, true);
 }
 
 #[test]
 fn benchmark_ll() {
-    benchmark_parsing_positive(calculate_helper, 50, 100, 100000);
+    benchmark_parsing_positive(calculate_helper, 15, 30, 1000);
 }
 
 #[test]
 fn benchmark_stupid() {
-    benchmark_parsing_positive(stupid_calculate, 50, 100, 100000);
+    benchmark_parsing_positive(stupid_calculate, 15, 30, 1000);
 }

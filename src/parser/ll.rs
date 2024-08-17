@@ -19,15 +19,15 @@ impl<S: GrammarSymbol> LLParser<S> {
     }
 
     /// Parse some non-terminal.
-    fn parse_nt(&self, nt: S, lexer: &mut dyn Lexer<S>) -> Option<Box<TreeNode<S>>> {
+    fn parse_nt(&self, nt: usize, lexer: &mut dyn Lexer<S>) -> Option<Box<TreeNode<S>>> {
         let cur = lexer.cur();
-        let productions = S::get_productions(&nt);
+        let productions = S::get_productions(nt);
 
         if cur.is_none() {
             // Check for the epsilon production.
-            return if productions.iter().any(|it| it.is_right()) {
+            return if productions.iter().any(|it| it.is_none()) {
                 Some(Box::new(TreeNode::NonEps(NonEpsTreeNode {
-                    vertex: nt,
+                    vertex: S::from_num(nt),
                     children: Some(vec![Box::new(TreeNode::Eps)]),
                 })))
             } else {
@@ -40,15 +40,15 @@ impl<S: GrammarSymbol> LLParser<S> {
         // Will be true if `nt` has epsilon production.
         let mut has_eps = false;
         for production in productions.iter() {
-            if production.is_right() {
+            if production.is_none() {
                 has_eps = true;
                 continue;
             }
-            let production = production.as_ref().left().unwrap();
+            let production = production.as_ref().unwrap();
             let mut children: Vec<Box<TreeNode<S>>> = Vec::new();
 
-            let childs_to_skip = if production[0].is_terminal() {
-                if !production[0].is_accept(&cur) {
+            let childs_to_skip = if S::is_terminal(production[0]) {
+                if production[0] != cur.to_num() {
                     continue;
                 }
                 children.push(Box::new(TreeNode::NonEps(NonEpsTreeNode::<S> {
@@ -69,10 +69,10 @@ impl<S: GrammarSymbol> LLParser<S> {
             //   there is must be single such production (else we can't
             //   choose only by single symbol lookup and it's not LL(1)).
             for s in production.iter().skip(childs_to_skip) {
-                if s.is_terminal() {
+                if S::is_terminal(*s) {
                     // Have terminal, try to match it with current symbol.
                     let cur = lexer.cur()?;
-                    if !s.is_accept(&cur) {
+                    if *s != cur.to_num() {
                         // Can't match, nothing left to do, because we picked right production.
                         return None;
                     }
@@ -88,7 +88,7 @@ impl<S: GrammarSymbol> LLParser<S> {
                 }
             }
             return Some(Box::new(TreeNode::NonEps(NonEpsTreeNode::<S> {
-                vertex: nt,
+                vertex: S::from_num(nt),
                 children: Some(children),
             })));
         }
@@ -97,7 +97,7 @@ impl<S: GrammarSymbol> LLParser<S> {
             // But we have epsilon production, so we can conclude that it is using here.
             // Again, the properties of LL(1) are used here.
             Some(Box::new(TreeNode::NonEps(NonEpsTreeNode {
-                vertex: nt,
+                vertex: S::from_num(nt),
                 children: Some(vec![Box::new(TreeNode::Eps)]),
             })))
         } else {

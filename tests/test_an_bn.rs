@@ -1,8 +1,8 @@
 use std::cell::RefCell;
 
-use either::Either;
+use grammar_derive::GrammarSymbol;
 use parus::{
-    grammar::grammar::{Epsilon, GrammarSymbol, RandomGrammarIterator},
+    grammar::grammar::{IterableGrammarSymbol, RandomGrammarIterator},
     lexer::lexer::Lexer,
     parser::{
         ll::LLParser,
@@ -14,44 +14,16 @@ use parus::{
 /// V = {S, A, B}
 ///
 /// S -> A S B | eps
-#[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Debug)]
+#[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Debug, GrammarSymbol)]
 enum Node {
+    #[to(
+        A S B,
+        Epsilon,
+    )]
     S,
+
     A,
     B,
-}
-
-impl Node {
-    const PRODUCTIONS: [&'static [Either<&'static [Node], Epsilon>]; 1] = [&[
-        // S -> A S B
-        Either::Left(&[Node::A, Node::S, Node::B]),
-        // S -> eps
-        Either::Right(Epsilon {}),
-    ]];
-}
-
-impl GrammarSymbol for Node {
-    fn is_terminal(&self) -> bool {
-        matches!(self, Self::A | Self::B)
-    }
-
-    fn start_non_terminal() -> Self {
-        Self::S
-    }
-
-    fn is_accept(&self, oth: &Self) -> bool {
-        match self.is_terminal() {
-            true => self == oth,
-            _ => false,
-        }
-    }
-
-    fn get_productions<'a, 'b, 'c>(symbol: &'a Self) -> &'b [Either<&'c [Self], Epsilon>] {
-        match symbol {
-            Node::S => Self::PRODUCTIONS[0],
-            _ => panic!("only non-terminals have productions"),
-        }
-    }
 }
 
 #[test]

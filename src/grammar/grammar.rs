@@ -1,36 +1,34 @@
-use either::Either;
 use rand::Rng;
 use std::{collections::VecDeque, fmt::Debug, hash::Hash, marker::PhantomData};
 
 /// Describes the symbols in the specific grammar.
 pub trait GrammarSymbol: Eq + Hash + Ord + Clone + Debug {
     /// Returns true is symbol is a terminal.
-    fn is_terminal(&self) -> bool;
+    fn is_terminal(num: usize) -> bool;
 
     /// Returns true is symbol is a non-terminal.
-    fn is_non_terminal(&self) -> bool {
-        return !self.is_terminal();
+    fn is_non_terminal(num: usize) -> bool {
+        return !Self::is_terminal(num);
     }
 
     /// Returns a start non terminal for the grammar.
-    fn start_non_terminal() -> Self;
-
-    /// Tries to compare and accept the actual data for a terminal.
-    /// Returns true in the case of success.
-    ///
-    /// For example, we are trying to parse the terminal `Int`,
-    /// in production this symbol is some empty `Int` structure,
-    /// lexer returns `Int(12345)` and next we try to fill the data with actual value 12345.
-    /// In this situation `Int`.is_accept(`Int`(12345)) must return true.
-    ///
-    /// Or, lexer can return some other symbol, e.g., `Float`, and in this situation,
-    /// is_accept(...) must return false.
-    fn is_accept(&self, oth: &Self) -> bool;
+    fn start_non_terminal() -> usize;
 
     /// Get productions for the specific symbol.
     /// Will be called for only non-terminal symbols.
-    fn get_productions<'a, 'b, 'c>(symbol: &'a Self) -> &'b [Either<&'c [Self], Epsilon>];
+    /// `None` means epsilon-production.
+    fn get_productions<'a, 'b, 'c>(num: usize) -> &'b [Option<&'c [usize]>];
 
+    /// Make `Self` from symbol num.
+    /// Only to pretty iterator results.
+    /// Called only on non-terminals.
+    fn from_num(num: usize) -> Self;
+
+    /// Make symbol num from `Self`.
+    fn to_num(&self) -> usize;
+}
+
+pub trait IterableGrammarSymbol: GrammarSymbol {
     /// Makes an iterator from the grammar.
     fn into_iterator() -> GrammarIterator<Self>
     where
@@ -40,14 +38,11 @@ pub trait GrammarSymbol: Eq + Hash + Ord + Clone + Debug {
     }
 }
 
-/// Equivalent of an empty string.
-#[derive(Clone)]
-pub struct Epsilon {}
-
 /// Visits the specified grammar, using BFS.
 /// If the grammar produces the same string several times, returns it several times.
 pub struct GrammarIterator<S: GrammarSymbol> {
-    queue: VecDeque<Vec<S>>,
+    queue: VecDeque<Vec<usize>>,
+    phantom: PhantomData<S>,
 }
 
 impl<S: GrammarSymbol> GrammarIterator<S> {
@@ -55,30 +50,31 @@ impl<S: GrammarSymbol> GrammarIterator<S> {
     fn new() -> Self {
         Self {
             queue: VecDeque::from([vec![S::start_non_terminal()]]),
+            phantom: PhantomData,
         }
     }
 }
 
 /// Applies production to the string and returns the count of terminals.
 fn apply_production<S: GrammarSymbol>(
-    str: &mut Vec<S>,
+    str: &mut Vec<usize>,
     i: usize,
-    production: &Either<&[S], Epsilon>,
+    production: &Option<&[usize]>,
 ) -> i32 {
-    if production.is_right() {
+    if production.is_none() {
         // Epsilon production, so remove this symbol.
         str.remove(i);
         0
     } else {
         // Non-epsilon production, so replace subarray.
-        let production = production.clone().left().unwrap();
+        let production = production.clone().unwrap();
         let mut count_non_terminals = 0;
         str.splice(
             i..i + 1,
             production
                 .iter()
                 .map(|it| {
-                    if it.is_terminal() {
+                    if S::is_terminal(*it) {
                         count_non_terminals += 1;
                     }
                     it
@@ -96,15 +92,18 @@ impl<S: GrammarSymbol> Iterator for GrammarIterator<S> {
     fn next(&mut self) -> Option<Self::Item> {
         while let Some(str) = self.queue.pop_front() {
             // Rewrite first non-terminal.
-            let non_terminal = str.iter().enumerate().find(|(_, e)| e.is_non_terminal());
+            let non_terminal = str
+                .iter()
+                .enumerate()
+                .find(|(_, e)| S::is_non_terminal(**e));
             if non_terminal.is_none() {
                 // Strings does not contain non-terminal => it in language.
-                return Some(str);
+                return Some(str.into_iter().map(|it| S::from_num(it)).collect());
             }
             let (i, s) = non_terminal.unwrap();
-            for production in S::get_productions(s) {
+            for production in S::get_productions(*s) {
                 let mut nxt = str.clone();
-                apply_production(&mut nxt, i, production);
+                apply_production::<S>(&mut nxt, i, production);
                 self.queue.push_back(nxt);
             }
         }
@@ -158,14 +157,14 @@ impl<S: GrammarSymbol> Iterator for RandomGrammarIterator<S> {
 
         loop {
             let non_terminal_idx: Vec<_> = (0..cur.len())
-                .filter(|i| cur[*i].is_non_terminal())
+                .filter(|i| S::is_non_terminal(cur[*i]))
                 .collect();
             if non_terminal_idx.is_empty() {
                 assert!(cur.len() == length);
-                return Some(cur);
+                return Some(cur.into_iter().map(|it| S::from_num(it)).collect());
             }
             let id = non_terminal_idx[self.rng.gen::<usize>() % non_terminal_idx.len()];
-            let productions = S::get_productions(&cur[id]);
+            let productions = S::get_productions(cur[id]);
             assert!(!productions.is_empty());
 
             let prod_id = if length >= self.min_lentgth && length < self.max_length {
@@ -175,15 +174,14 @@ impl<S: GrammarSymbol> Iterator for RandomGrammarIterator<S> {
             } else {
                 let (with_non_terminals, without_non_terminals): (Vec<_>, Vec<_>) =
                     (0..productions.len()).partition(|i| {
-                        if productions[*i].is_right() {
+                        if productions[*i].is_none() {
                             false
                         } else {
                             productions[*i]
                                 .as_ref()
-                                .left()
                                 .unwrap()
                                 .iter()
-                                .any(|t| t.is_non_terminal())
+                                .any(|t| S::is_non_terminal(*t))
                         }
                     });
                 if length < self.min_lentgth {
@@ -196,7 +194,7 @@ impl<S: GrammarSymbol> Iterator for RandomGrammarIterator<S> {
                 }
             };
 
-            length += apply_production(&mut cur, id, &productions[prod_id]) as usize;
+            length += apply_production::<S>(&mut cur, id, &productions[prod_id]) as usize;
         }
     }
 }
